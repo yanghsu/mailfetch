@@ -1,16 +1,9 @@
-pop3 = "some.mail.com:995"
+pop3 = "mail.foobar.com:995"
 enable_ssl = True
-user = "foo@bar.com:password" 
+user = "a@b.com:password" 
 message_id = "/tmp/message-id.list"
-debug_level = 10
+debug_level = 0
 save_dir = "/tmp/save-dir"
 
-def is_interested_in(msg):
-    return any(True for i in msg.get_all('Subject') if 'bug report' in i)
-    
-def save_to(uid, filename, payload):
-    if not filename:
-        filename = 'test.zip'
-    path = '-'.join([uid, filename])
-    with open(os.path.join(save_dir, path), 'wb') as f:
-        f.write(payload)
+# filter setting
+keyword = 'key word'

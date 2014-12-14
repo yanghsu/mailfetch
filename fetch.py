@@ -1,9 +1,35 @@
 import email
 import poplib
 import sys
+import os
 
 import conf
 
+def decode_header(header, msgno=''):
+    b, enc = email.header.decode_header(header)[0]
+    if enc is not None:
+        try:
+            return b.decode(enc)
+        except:
+            sys.stderr.write("[%s] cannot decode subject with encoding: %s\n" % (msgno, enc))
+            return ""
+    if isinstance(b, bytes):
+        return b.decode()
+    return b
+
+def is_interested_in(msg, msgno=''):
+    for i in msg.get_all('Subject'):
+        subject = decode_header(i, msgno)
+        if conf.keyword in subject:
+            return True
+    return False   
+    
+def save_to(uid, filename, payload):
+    if not filename:
+        filename = 'test.zip'
+    path = '-'.join([uid, filename])
+    with open(os.path.join(conf.save_dir, path), 'wb') as f:
+        f.write(payload)
 
 class Pop3:
     def __init__(self, config, uids):
@@ -41,38 +67,52 @@ class Pop3:
     def _disconnect(self):
         self.pop3.quit()
 
-    def fetch(self):
+    def fetch(self, msgno):
+        resp, raw_msg, octs = self.pop3.retr(msgno)
+        msg = email.message_from_bytes(b'\n'.join(raw_msg))
+        return msg
+
+    def top(self):
         resp, uids, octets = self.pop3.uidl()
-        for uid in uids:
+        for uid in uids[::-1]:
             msgno, uid = uid.split()
+            
+            msgno = msgno.decode()
+            uid = uid.decode()
+
             if uid in self.uids:
                 continue
-            print('msgno = ', msgno)
-            print('uid = ', uid)
-            resp, raw_msg, octs = self.pop3.retr(msgno.decode())
+            resp, raw_msg, octs = self.pop3.top(msgno, 0)
             msg = email.message_from_bytes(b'\n'.join(raw_msg))
-            yield uid, msg
-
+            yield msgno, uid, msg
 
 def main():
-    known_uids = None
-    with open(sys.argv[1]) as f:
-        known_uids = f.readlines()
+    known_uids = []
+    try:
+        with open(conf.message_id) as f:
+            known_uids = [l.strip() for l in f.readlines()]
+    except:
+        pass
 
     pop3 = Pop3(conf, known_uids)
     with pop3:
-        for uid, msg in pop3.fetch():
-            if not conf.is_interested_in(msg):
-                continue
-            for part in msg.walk():
-                # if part.get('Content-Disposition') is None:
-                #     continue
-                conf.save_to(uid,
-                             part.get_filename(),
-                             part.get_payload(decode=1))
+        with open(conf.message_id, 'a') as msgIdLog:
+            for msgno, uid, msg in pop3.top():
+                # record uid
+                msgIdLog.write(uid+'\n') 
 
-            print(uid)
+                if not is_interested_in(msg, msgno):
+                    continue
 
+
+                msg = pop3.fetch(msgno)
+                for part in msg.walk():
+                    filename = part.get_filename()
+                    if filename is not None and 'crash-report' in filename:
+                        save_to( uid,
+                                 part.get_filename(),
+                                 part.get_payload(decode=1))
+                        print(uid)
 
 if __name__ == '__main__':
     main()
